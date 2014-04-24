@@ -1,12 +1,6 @@
-xpc
-===
-
-```ruby
 require 'xpc'
 
-# ...
-
-xpc = XPC.new(mach_service_name)
+xpc = XPC.new('com.apple.blued')
 
 Signal.trap("INT") { xpc.disconnect }
 
@@ -19,8 +13,3 @@ xpc.on(:error) do |error|
 end
 
 xpc.connect
-
-xpc.emit(message)
-
-
-```
