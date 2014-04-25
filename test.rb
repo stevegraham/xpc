@@ -1,6 +1,6 @@
 require 'xpc'
 
-xpc = XPC.new('com.apple.blued')
+xpc = XPC.new('com.appleued')
 
 Signal.trap("INT") { xpc.disconnect }
 

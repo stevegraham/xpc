@@ -84,14 +84,17 @@ static VALUE xpc_connect(VALUE self) {
   struct xpc_connection *connection;
   Data_Get_Struct(self, struct xpc_connection, connection);
 
-  VALUE ivar     = rb_iv_get(self, "service_name");
-  char * service = StringValueCStr(ivar);
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    VALUE ivar     = rb_iv_get(self, "service_name");
+    char * service = StringValueCStr(ivar);
 
-  connection->connection = xpc_connection_create_mach_service(service, dispatch_get_main_queue(), XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
+    connection->connection = xpc_connection_create_mach_service(service, dispatch_get_main_queue(), XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
 
-  xpc_connection_set_event_handler(connection->connection, ^(xpc_object_t event) {
-    xpc_retain(event);
-    xpc_handle_event(self, event);
+    xpc_connection_set_event_handler(connection->connection, ^(xpc_object_t event) {
+      xpc_retain(event);
+      xpc_handle_event(self, event);
+    });
   });
 
   xpc_connection_resume(connection->connection);
