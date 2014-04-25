@@ -20,6 +20,9 @@ static xpc_object_t rb_array_to_xpc_object();
 static xpc_object_t rb_hash_to_xpc_object();
 static int hash_iter_cb();
 
+struct xpc_connection {
+  xpc_connection_t connection;
+};
 
 void Init_xpc() {
   VALUE xpc = rb_define_class("XPC", rb_cObject);
@@ -35,16 +38,14 @@ void Init_xpc() {
 }
 
 static VALUE xpc_alloc(VALUE self) {
-  // dispatch_queue_t queue      = dispatch_queue_create("xpc", 0);
-  xpc_connection_t connection = xpc_connection_create_mach_service("xpc", dispatch_get_main_queue(), XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
-
+  struct xpc_connection *connection = malloc(sizeof(struct xpc_connection));
   return Data_Wrap_Struct(self, NULL, xpc_dealloc, connection);
 }
 
 static VALUE xpc_init(VALUE self, VALUE service_name) {
   Check_Type(service_name, T_STRING);
-  rb_ivar_set(self, rb_intern("service_name"), service_name);
-  rb_ivar_set(self, rb_intern("callbacks"), rb_hash_new());
+  rb_iv_set(self, "service_name", service_name);
+  rb_iv_set(self, "callbacks", rb_hash_new());
 
   return self;
 }
@@ -64,7 +65,7 @@ static VALUE xpc_on(VALUE self, VALUE key) {
   Check_Type(key, T_SYMBOL);
 
   VALUE proc = rb_block_proc();
-  VALUE callbacks = rb_ivar_get(self, rb_intern("callbacks"));
+  VALUE callbacks = rb_iv_get(self, "callbacks");
 
   rb_hash_aset(callbacks, key, proc);
 
@@ -80,25 +81,30 @@ static VALUE xpc_disconnect(VALUE self) {
 }
 
 static VALUE xpc_connect(VALUE self) {
-  xpc_connection_t *connection;
-  Data_Get_Struct(self, xpc_connection_t, connection);
+  struct xpc_connection *connection;
+  Data_Get_Struct(self, struct xpc_connection, connection);
 
-  xpc_connection_set_event_handler(connection, ^(xpc_object_t event) {
+  VALUE ivar     = rb_iv_get(self, "service_name");
+  char * service = StringValueCStr(ivar);
+
+  connection->connection = xpc_connection_create_mach_service(service, dispatch_get_main_queue(), XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
+
+  xpc_connection_set_event_handler(connection->connection, ^(xpc_object_t event) {
     xpc_retain(event);
     xpc_handle_event(self, event);
   });
 
-  xpc_connection_resume(connection);
+  xpc_connection_resume(connection->connection);
 
   for (;;) {
-   CFRunLoopRunInMode(kCFRunLoopDefaultMode, 5, TRUE);
-   }
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 5, TRUE);
+  }
 
   return Qtrue;
 }
 
 static void xpc_handle_event(VALUE self, xpc_object_t event) {
-  VALUE callbacks = rb_ivar_get(self, rb_intern("callbacks"));
+  VALUE callbacks = rb_iv_get(self, "callbacks");
   VALUE callback;
   VALUE payload;
 
