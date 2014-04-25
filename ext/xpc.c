@@ -1,6 +1,7 @@
 #include "ruby.h"
 #include "ruby/intern.h"
 
+#import <CoreFoundation/CoreFoundation.h>
 #import <xpc/xpc.h>
 
 static VALUE xpc_alloc();
@@ -34,17 +35,8 @@ void Init_xpc() {
 }
 
 static VALUE xpc_alloc(VALUE self) {
-  dispatch_queue_t queue      = dispatch_queue_create("xpc", 0);
-  xpc_connection_t connection = xpc_connection_create_mach_service("xpc", queue, XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
-
-  xpc_connection_set_event_handler(connection, ^(xpc_object_t event) {
-    rb_warn("boop!");
-
-    xpc_retain(event);
-
-    ID method = rb_intern("xpc_handle_event");
-    rb_funcall(self, method, 1, event);
-  });
+  // dispatch_queue_t queue      = dispatch_queue_create("xpc", 0);
+  xpc_connection_t connection = xpc_connection_create_mach_service("xpc", dispatch_get_main_queue(), XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
 
   return Data_Wrap_Struct(self, NULL, xpc_dealloc, connection);
 }
@@ -91,7 +83,16 @@ static VALUE xpc_connect(VALUE self) {
   xpc_connection_t *connection;
   Data_Get_Struct(self, xpc_connection_t, connection);
 
-  xpc_connection_resume(*connection);
+  xpc_connection_set_event_handler(connection, ^(xpc_object_t event) {
+    xpc_retain(event);
+    xpc_handle_event(self, event);
+  });
+
+  xpc_connection_resume(connection);
+
+  for (;;) {
+   CFRunLoopRunInMode(kCFRunLoopDefaultMode, 5, TRUE);
+   }
 
   return Qtrue;
 }
@@ -111,10 +112,14 @@ static void xpc_handle_event(VALUE self, xpc_object_t event) {
       message = "connection invalid";
     }
 
-    callback = rb_hash_aref(callbacks, ID2SYM(rb_intern("error")));
-    payload  = rb_str_new2(message);
+    callback   = rb_hash_aref(callbacks, ID2SYM(rb_intern("error")));
+    payload    = rb_str_new2(message);
+    VALUE args = rb_ary_new();
 
-    rb_proc_call(callback, payload);
+    rb_ary_push(args, payload);
+
+    rb_proc_call(callback, args);
+
 
   } else if (type == XPC_TYPE_DICTIONARY) {
 
